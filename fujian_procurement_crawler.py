@@ -69,6 +69,8 @@ class FujianProcurementCrawler:
         # 数据存储
         self.results = []
         self.detail_data = []
+        # 启用/禁用详情提取的开关（默认关闭）
+        self.extract_details_enabled = False
         
         # 创建输出目录
         self.output_dir = f"fujian_procurement_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -351,8 +353,6 @@ class FujianProcurementCrawler:
                         
                         # 提取公告标题和链接
                         title_cell = cells[3]
-                        
-                        # 尝试多种方式查找链接
                         title_link = None
                         title = ""
                         detail_url = ""
@@ -364,7 +364,7 @@ class FujianProcurementCrawler:
                             detail_url = title_link.get_attribute('href')
                             print(f"✅ 第{i}行找到链接: {title[:30]}...")
                         except NoSuchElementException:
-                            # 方法2: 查找可点击的元素
+                            # 方法2-6: 其它方式构建链接
                             try:
                                 clickable_elements = title_cell.find_elements(By.XPATH, ".//*[@onclick or @href or contains(@class, 'link') or contains(@class, 'clickable')]")
                                 if clickable_elements:
@@ -833,20 +833,21 @@ class FujianProcurementCrawler:
                     writer.writeheader()
                     writer.writerows(self.results)
             
-            # 保存详情数据为JSON
-            if self.detail_data:
+            # 保存详情数据为JSON（仅在启用详情提取时）
+            if self.extract_details_enabled and self.detail_data:
                 detail_file = os.path.join(self.output_dir, 'detail_data.json')
                 with open(detail_file, 'w', encoding='utf-8') as f:
                     json.dump(self.detail_data, f, ensure_ascii=False, indent=2)
             
             print(f"数据已保存到: {self.output_dir}")
             print(f"搜索结果: {len(self.results)} 条")
-            print(f"详情数据: {len(self.detail_data)} 条")
+            if self.extract_details_enabled:
+                print(f"详情数据: {len(self.detail_data)} 条")
             
         except Exception as e:
             print(f"保存数据失败: {e}")
 
-    def run(self, unit_name="医院", extract_details=True):
+    def run(self, unit_name="医院", extract_details=False):
         """
         运行爬虫
         
@@ -856,6 +857,8 @@ class FujianProcurementCrawler:
         """
         try:
             print("开始运行福建省政府采购网爬虫...")
+            # 同步详情提取开关
+            self.extract_details_enabled = extract_details
             
             # 搜索采购单位
             if not self.search_procurement_unit(unit_name):
@@ -884,12 +887,13 @@ class FujianProcurementCrawler:
                     print(f"第 {current_page} 页提取到 {len(page_results)} 条记录")
                     
                     # 提取详情页面（可选）
-                    if extract_details:
+                    if self.extract_details_enabled:
                         for result in page_results:
-                            detail_data = self.extract_detail_page(result['detail_url'])
-                            if detail_data:
-                                self.detail_data.append(detail_data)
-                            time.sleep(1)  # 避免请求过快
+                            if result.get('detail_url'):
+                                detail_data = self.extract_detail_page(result['detail_url'])
+                                if detail_data:
+                                    self.detail_data.append(detail_data)
+                                time.sleep(1)  # 避免请求过快
                     
                     # 跳转到下一页
                     if current_page < total_pages:
@@ -936,7 +940,7 @@ def main():
     max_pages_input = input("请输入最大爬取页数 (默认: 全部): ").strip()
     max_pages = int(max_pages_input) if max_pages_input.isdigit() else None
     
-    extract_details = input("是否提取详情页面? (y/n, 默认: y): ").strip().lower() != 'n'
+    extract_details = input("是否提取详情页面? (y/n, 默认: n): ").strip().lower() == 'y'
     
     headless = input("是否使用无头模式? (y/n, 默认: n): ").strip().lower() == 'y'
     
